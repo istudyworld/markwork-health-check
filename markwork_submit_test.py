@@ -163,9 +163,34 @@ def run() -> dict:
             browser.close()
 
 
+def alert_chat(result: dict) -> None:
+    """Post a failure summary to Google Chat. No-op if chat_client/auth absent."""
+    try:
+        import socket
+        import chat_client
+    except Exception:
+        return
+    space = os.getenv("CHAT_SPACE", "spaces/AAQAEKYlR3E")
+    text = (
+        "Markwork health check FAILED\n"
+        f"host: {socket.gethostname()}\n"
+        f"time: {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
+        f"submission: {result.get('submission')}\n"
+        f"error: {result.get('error_type')}: {result.get('error_message')}\n"
+        f"url_at_failure: {result.get('url_at_failure')}\n"
+        f"screenshot: {result.get('screenshot')}"
+    )
+    try:
+        chat_client.send_message(space, text)
+    except Exception as e:
+        print(f"[alert_chat] send failed: {type(e).__name__}: {e}", file=sys.stderr)
+
+
 def main() -> int:
     result = run()
     emit_result(result)
+    if not result["ok"]:
+        alert_chat(result)
     return 0 if result["ok"] else 1
 
 
