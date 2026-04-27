@@ -171,34 +171,40 @@ def run() -> dict:
             browser.close()
 
 
-def alert_chat(result: dict) -> None:
-    """Post a failure summary to Google Chat. No-op if chat_client/auth absent."""
+def alert_email(result: dict) -> None:
+    """Email a failure summary to ALERT_TO. No-op if gmail_client/auth absent."""
     try:
         import socket
-        import chat_client
+        import gmail_client
     except Exception:
         return
-    space = os.getenv("CHAT_SPACE", "spaces/AAQAEKYlR3E")
-    text = (
-        "Markwork health check FAILED\n"
-        f"host: {socket.gethostname()}\n"
-        f"time: {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
-        f"submission: {result.get('submission')}\n"
-        f"error: {result.get('error_type')}: {result.get('error_message')}\n"
+    to = os.getenv("ALERT_TO", "admin@istudyworld.com")
+    subject = f"[Markwork] Health check FAILED — {result.get('error_type')}"
+    body = (
+        "Markwork health check FAILED\n\n"
+        f"host:           {socket.gethostname()}\n"
+        f"time:           {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
+        f"submission:     {result.get('submission')}\n"
+        f"error_type:     {result.get('error_type')}\n"
+        f"error_message:  {result.get('error_message')}\n"
+        f"is_timeout:     {result.get('is_timeout')}\n"
         f"url_at_failure: {result.get('url_at_failure')}\n"
-        f"screenshot: {result.get('screenshot')}"
+        f"screenshot:     {result.get('screenshot')}\n"
+        f"html:           {result.get('html')}\n\n"
+        "traceback (tail):\n"
+        f"{result.get('traceback', '')}\n"
     )
     try:
-        chat_client.send_message(space, text)
+        gmail_client.send_email(to, subject, body)
     except Exception as e:
-        print(f"[alert_chat] send failed: {type(e).__name__}: {e}", file=sys.stderr)
+        print(f"[alert_email] send failed: {type(e).__name__}: {e}", file=sys.stderr)
 
 
 def main() -> int:
     result = run()
     emit_result(result)
     if not result["ok"]:
-        alert_chat(result)
+        alert_email(result)
     return 0 if result["ok"] else 1
 
 

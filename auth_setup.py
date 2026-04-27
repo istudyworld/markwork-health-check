@@ -3,7 +3,8 @@ from pathlib import Path
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-SCOPES = ["https://www.googleapis.com/auth/chat.messages.create"]
+from scopes import SCOPES
+
 HERE = Path(__file__).parent
 
 

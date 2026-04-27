@@ -5,7 +5,8 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-SCOPES = ["https://www.googleapis.com/auth/chat.messages.create"]
+from scopes import SCOPES
+
 HERE = Path(__file__).parent
 
 
