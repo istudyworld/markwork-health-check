@@ -74,7 +74,13 @@ def run() -> dict:
         browser = p.chromium.launch(headless=HEADLESS)
         # Cloud sandboxes sometimes ship a stripped CA bundle; ignore cert errors
         # since we are health-checking the grading flow, not the TLS chain.
-        context = browser.new_context(ignore_https_errors=True)
+        # Force en-US so the form labels stay English (markwork.com auto-detects
+        # locale and switches to Arabic with no Accept-Language header).
+        context = browser.new_context(
+            ignore_https_errors=True,
+            locale="en-US",
+            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+        )
         page = context.new_page()
         try:
             page.goto(URL, wait_until="domcontentloaded", timeout=60_000)
@@ -95,41 +101,43 @@ def run() -> dict:
             )
             page.wait_for_selector(f"text={file_name}", timeout=15_000)
 
-            # Native <select> elements underlying the styled dropdowns.
-            selects = page.locator("select")
-            selects.nth(0).select_option(label=ASSIGNMENT_TYPE)
-            selects.nth(1).select_option(label=ACADEMIC_LEVEL)
-
-            submit_btn = page.get_by_role("button", name="Grade My Work")
-            page.wait_for_function(
-                "el => el && !el.disabled",
-                arg=submit_btn.element_handle(),
-                timeout=10_000,
+            # The native <select> elements are aria-hidden under styled wrappers,
+            # so Playwright's select_option refuses them. Set values directly via
+            # the prototype setter and dispatch a React-aware change event.
+            page.evaluate(
+                """({assignmentType, academicLevel}) => {
+                    const setter = Object.getOwnPropertyDescriptor(
+                        window.HTMLSelectElement.prototype, 'value'
+                    ).set;
+                    const selects = document.querySelectorAll('select');
+                    setter.call(selects[0], assignmentType);
+                    selects[0].dispatchEvent(new Event('change', { bubbles: true }));
+                    setter.call(selects[1], academicLevel);
+                    selects[1].dispatchEvent(new Event('change', { bubbles: true }));
+                }""",
+                {"assignmentType": ASSIGNMENT_TYPE, "academicLevel": ACADEMIC_LEVEL},
             )
+
+            # Language-agnostic: there is exactly one submit button in the form.
+            submit_btn = page.locator('button[type="submit"]').first
+            submit_btn.wait_for(state="visible", timeout=15_000)
             submit_btn.click()
 
             # Success signal: redirect to /results/<uuid>.
             page.wait_for_url(re.compile(r"/results/[0-9a-f-]{36}"), timeout=60_000)
             results_url = page.url
 
-            # Grade can take up to ~3 min; the page mutates in place when ready.
-            page.wait_for_selector("text=OVERALL GRADE", timeout=GRADE_TIMEOUT_MS)
+            # Grade can take up to ~3 min. Match any percentage in body text —
+            # language-agnostic since markwork.com may render in Arabic
+            # depending on the client (the band labels translate too).
             page.wait_for_function(
-                """() => {
-                    const t = document.body.innerText;
-                    return /\\d{1,3}(?:-\\d{1,3})?\\s*%/.test(t)
-                        && /(Fail|Pass|Distinction|Merit|Third|Second|First)/i.test(t);
-                }""",
+                "() => /\\d{1,3}(?:-\\d{1,3})?\\s*%/.test(document.body.innerText)",
                 timeout=GRADE_TIMEOUT_MS,
             )
 
             page_text = page.inner_text("body")
-            m = re.search(
-                r"(\d{1,3}(?:-\d{1,3})?\s*%)\s*\(?\s*(Fail|Pass|Distinction|Merit|Third|Second|First)[^)]*\)?",
-                page_text,
-                re.I,
-            )
-            grade = m.group(0).strip() if m else "(grade text matched but regex extraction failed)"
+            m = re.search(r"\d{1,3}(?:-\d{1,3})?\s*%", page_text)
+            grade = m.group(0).strip() if m else "(percentage matched but extraction failed)"
 
             page.screenshot(path=str(ARTIFACT_DIR / f"success_{stamp()}.png"), full_page=True)
             return {
