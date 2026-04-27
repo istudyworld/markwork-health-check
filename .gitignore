@@ -1,0 +1,11 @@
+.venv/
+credentials.json
+token.json
+.env
+.claude/
+logs/
+artifacts/
+__pycache__/
+*.pyc
+test_submission.pdf
+recon_test.txt
