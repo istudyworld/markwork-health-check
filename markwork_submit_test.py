@@ -72,7 +72,9 @@ def run() -> dict:
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=HEADLESS)
-        context = browser.new_context()
+        # Cloud sandboxes sometimes ship a stripped CA bundle; ignore cert errors
+        # since we are health-checking the grading flow, not the TLS chain.
+        context = browser.new_context(ignore_https_errors=True)
         page = context.new_page()
         try:
             page.goto(URL, wait_until="domcontentloaded", timeout=60_000)
