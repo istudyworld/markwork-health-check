@@ -171,14 +171,35 @@ def run() -> dict:
             browser.close()
 
 
-def alert_email(result: dict) -> None:
-    """Email a failure summary to ALERT_TO. No-op if gmail_client/auth absent."""
+def _send_email(subject: str, body: str) -> None:
+    """Best-effort email send. Logs to stderr if it fails; never raises."""
     try:
-        import socket
         import gmail_client
     except Exception:
         return
     to = os.getenv("ALERT_TO", "admin@istudyworld.com")
+    try:
+        gmail_client.send_email(to, subject, body)
+    except Exception as e:
+        print(f"[email] send failed: {type(e).__name__}: {e}", file=sys.stderr)
+
+
+def email_success(result: dict) -> None:
+    import socket
+    subject = f"[Markwork] Health check PASS — {result.get('grade')}"
+    body = (
+        "Markwork health check PASS\n\n"
+        f"host:        {socket.gethostname()}\n"
+        f"time:        {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
+        f"submission:  {result.get('submission')}\n"
+        f"grade:       {result.get('grade')}\n"
+        f"results_url: {result.get('results_url')}\n"
+    )
+    _send_email(subject, body)
+
+
+def email_failure(result: dict) -> None:
+    import socket
     subject = f"[Markwork] Health check FAILED — {result.get('error_type')}"
     body = (
         "Markwork health check FAILED\n\n"
@@ -194,17 +215,16 @@ def alert_email(result: dict) -> None:
         "traceback (tail):\n"
         f"{result.get('traceback', '')}\n"
     )
-    try:
-        gmail_client.send_email(to, subject, body)
-    except Exception as e:
-        print(f"[alert_email] send failed: {type(e).__name__}: {e}", file=sys.stderr)
+    _send_email(subject, body)
 
 
 def main() -> int:
     result = run()
     emit_result(result)
-    if not result["ok"]:
-        alert_email(result)
+    if result["ok"]:
+        email_success(result)
+    else:
+        email_failure(result)
     return 0 if result["ok"] else 1
 
 
